@@ -6,12 +6,10 @@ using System.Threading.Tasks;
 
 namespace RecruitmentApp.Models
 {
-    public class Coordinates
+    public class TargetCoordinates
     {
-        public Int32 PositionId { get; set; }
-        public string? VehicleRegistration { get; set; }
+        public int Position { get; set; }
         public float Latitude { get; set; }
         public float Longitude { get; set; }
-        public Int64? RecordedTimeUTC { get; set; }
     }
 }

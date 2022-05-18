@@ -1,53 +1,108 @@
 ﻿using System;
 using RecruitmentApp.Models;
+using RecruitmentApp.Helpers.Interfaces;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
+using Newtonsoft.Json;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using RecruitmentApp.Helpers.Implementations;
+using RecruitmentApp.Constants;
+using System.Linq;
 
 namespace MyApp // Note: actual namespace depends on the project name.
 {
     internal class Program
     {
-        public List<Coordinates>? Coordinates { get; set; }
 
-        static void Main(string[] args)
+        static void Main (string[] args)
         {
-            List<Coordinates> coordinates = new List<Coordinates>();
+            Console.WriteLine("starting project ... ");
 
-            ReadBinaryFile(coordinates); 
+            var host = CreateHostBuilder(args).Build();
+
+            Console.WriteLine("checking if files exist ... ");
+
+            var BinaryfileExists = host.Services.GetService<IFileHelper>().IsFilePresent(StringLiterals.BinaryFilePath);
+
+            var JsonfileExists = host.Services.GetService<IFileHelper>().IsFilePresent(StringLiterals.JsonFilePath);
+
+            if (BinaryfileExists && JsonfileExists)
+            {
+                Console.WriteLine("files found, running services ...");
+
+                IList<Coordinates> coordinates = new List<Coordinates>();
+
+                coordinates = host.Services.GetService<IFileHelper>().ReadBinaryFile(coordinates);
+
+                var targets = JsonConvert.DeserializeObject<List<TargetCoordinates>>(host.Services.GetService<IFileHelper>().ReadJsonFile());
+
+                CalculateDistance(coordinates, targets, host);
+            }
+            else
+            {
+                Console.WriteLine("Binary file or Json file doesn't exist, please check the string literals to ensure the file paths are correct.");
+            }                
         }
 
-        static void ReadBinaryFile(List<Coordinates> coordinates)
+        private static IHostBuilder CreateHostBuilder(string[] args)
         {
+            Console.WriteLine("registering services ... ");
 
-            using (BinaryReader b = new BinaryReader(
-            File.Open("../../../Resources/VehiclePositions.dat", FileMode.Open)))
-            {
-                while (b.BaseStream.Position != b.BaseStream.Length)
+            var hostBuilder = Host.CreateDefaultBuilder(args)
+                .ConfigureAppConfiguration((context, builder) =>
                 {
-                    try
-                    {
-                        Coordinates tag = new Coordinates();
+                    builder.SetBasePath(Directory.GetCurrentDirectory());
+                })
+                .ConfigureServices((context, services) =>
+                {
+                    services.AddSingleton<IFileHelper, FileHelper>();
+                    services.AddSingleton<IDistanceHelper, DistanceHelper>();
+                });
 
-                        tag.PositionId = b.ReadInt32();
-                        tag.VehicleRegistration = b.ReadByte().ToString();
+            return hostBuilder;
+        }
 
-                        tag.Latitude = BitConverter.ToSingle(b.ReadBytes(4));
+        private static void CalculateDistance(IList<Coordinates> coordinates, IList<TargetCoordinates> targets, IHost host)
+        {
+            Console.WriteLine("calculating distance ... ");
 
-                        tag.Longitude = BitConverter.ToSingle(b.ReadBytes(4));
-                        tag.RecordedTimeUTC = b.ReadInt64();
+            IList<DistanceResult> distanceResult = new List<DistanceResult>();
 
-                        coordinates.Add(tag);
+            foreach (TargetCoordinates target in targets)
+            {
+                Console.WriteLine($"calculating distance for position: {target.Position} ... ");
 
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"an error occured: {ex.Message}");
-                    }
+                foreach (Coordinates coordinate in coordinates)
+                {
+                    var response = host.Services.GetService<IDistanceHelper>().CalculateDistance(coordinate, target);
 
+                    distanceResult.Add(response);
+                }
 
-                } 
-                
+                Console.WriteLine($"Distance calculated, determining closest distance for position: {target.Position} ... ");
+
+                var closestPoint = host.Services.GetService<IDistanceHelper>().DetermineClosestVehicle(distanceResult);
+
+                PrintResult(closestPoint);
+
+                distanceResult.Clear();
             }
         }
+
+        private static void PrintResult(DistanceResult closestPoint)
+        {
+            Console.WriteLine($"============================================ |{closestPoint.Position}| =========================================================");
+            Console.WriteLine($"Closest vehicle to point position: {closestPoint.Position} is : Vehicle ID: {closestPoint.VehicleId}");
+            Console.WriteLine($"Target Coordinates -> Latitude : {closestPoint.Latitude}, Longitude {closestPoint.Longitude}");
+            Console.WriteLine($"Vehicle Coordinates -> Latitude : {closestPoint.VehicleLatitude}, Longitude : {closestPoint.VehicleLongitude}");
+
+            Console.WriteLine($"============================================ |end| =========================================================");
+
+            Console.WriteLine("///////////////////////////////////////////////////////////////////////////////////////////////////////////////");
+            Console.WriteLine("");
+        }
+
     }
 }
